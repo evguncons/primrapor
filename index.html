@@ -98,7 +98,7 @@
                 </div>
                 <div>
                     <p class="text-white text-xs font-bold">Admin Panel</p>
-                    <p class="text-slate-400 text-[10px]">v6.7.2 Stable</p>
+                    <p class="text-slate-400 text-[10px]">v6.7.3 Auto-Live</p>
                 </div>
             </div>
         </div>
@@ -114,11 +114,12 @@
                 </button>
                 <div class="hidden sm:block w-1.5 h-8 bg-indigo-600 rounded-full"></div>
                 <h2 id="tabTitle" class="text-lg lg:text-xl font-bold text-slate-800 truncate">Şube Performans Tablosu</h2>
-                <div id="loading" class="hidden">
+                <div id="loading" class="hidden flex items-center gap-2">
                     <span class="flex h-3 w-3 relative">
                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
                         <span class="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
                     </span>
+                    <span class="text-[10px] font-bold text-indigo-500 uppercase tracking-tighter hidden md:block">Güncelleniyor</span>
                 </div>
             </div>
             
@@ -158,8 +159,8 @@
                         <span class="text-[11px] font-bold text-slate-400 uppercase mb-2 block tracking-widest">Brüt Ciro</span>
                         <div id="kpi-revenue" class="text-3xl font-extrabold text-slate-800 tracking-tighter">₺0</div>
                         <div class="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-600">
-                            <i class="fas fa-caret-up"></i>
-                            <span>Sistem Güncel</span>
+                            <i class="fas fa-sync fa-spin text-[8px]"></i>
+                            <span>Canlı Veri Akışı</span>
                         </div>
                     </div>
                     <div class="kpi-card relative overflow-hidden group">
@@ -170,7 +171,7 @@
                         <div id="kpi-sales" class="text-3xl font-extrabold text-slate-800 tracking-tighter">0</div>
                         <div class="mt-4 flex items-center gap-2 text-[10px] font-bold text-slate-400">
                             <i class="far fa-clock"></i>
-                            <span>Gerçek Zamanlı</span>
+                            <span>Son Güncelleme: <span id="lastUpdateTime">--:--</span></span>
                         </div>
                     </div>
                     <div class="kpi-card relative overflow-hidden group sm:col-span-2 lg:col-span-1">
@@ -181,11 +182,12 @@
                         <div id="kpi-basket" class="text-3xl font-extrabold text-slate-800 tracking-tighter">₺0</div>
                         <div class="mt-4 flex items-center gap-2 text-[10px] font-bold text-amber-600">
                             <i class="fas fa-info-circle"></i>
-                            <span>İşlem Başına</span>
+                            <span>Anlık Hesaplama</span>
                         </div>
                     </div>
                 </div>
 
+                <!-- Table Section -->
                 <div class="bg-white border border-slate-200 shadow-sm rounded-2xl overflow-hidden">
                     <div class="bg-slate-50/80 px-8 py-5 border-b border-slate-200 flex justify-between items-center">
                         <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest italic flex items-center gap-2">
@@ -239,12 +241,6 @@
                             <tbody id="customer-body-specified">
                                 <tr><td colspan="3" class="py-20 text-center text-slate-400 italic font-medium">Veriler işleniyor...</td></tr>
                             </tbody>
-                            <tfoot>
-                                <tr class="bg-slate-900 text-white font-bold uppercase text-[12px]">
-                                    <td colspan="2" class="text-right py-5 px-8 border-r border-white/5 tracking-widest">Kayıtlı Müşteri Toplamı</td>
-                                    <td id="customer-total-val" class="text-right py-5 px-8 text-indigo-400 text-base">₺0</td>
-                                </tr>
-                            </tfoot>
                         </table>
                     </div>
                 </div>
@@ -291,6 +287,7 @@
         const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwX2K6gBaSalxAuME90FUJVr086B9D4PKitB4MvqaD5_KNc-rSHI3UWDZIjyftU6quG/exec";
         let currentData = null;
         let activeTab = 'dashboard';
+        let refreshInterval = null;
 
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -314,13 +311,23 @@
                 if (periods && periods.length > 0) {
                     sel.innerHTML = periods.map(p => `<option value="${p}">${p}</option>`).join('');
                     sel.value = periods[0];
-                    await fetchData();
+                    await fetchData(false); // İlk yüklemede loader ile getir
+                    
+                    // 5 saniyede bir güncelleme döngüsünü başlat
+                    startAutoRefresh();
                 }
             } catch (e) { 
                 console.error("Dönemler yüklenemedi:", e); 
                 showErrorMessage("Veri bağlantısı kurulamadı.");
             } finally { loader.classList.add('hidden'); }
         });
+
+        function startAutoRefresh() {
+            if (refreshInterval) clearInterval(refreshInterval);
+            refreshInterval = setInterval(() => {
+                fetchData(true); // Arka planda sessiz güncelleme yap
+            }, 5000);
+        }
 
         function setTab(tab) {
             activeTab = tab;
@@ -336,36 +343,50 @@
             };
             document.getElementById('tabTitle').innerText = titles[tab];
             
-            // Şube filtresini her zaman gösterelim (kullanıcı istediği an filtreleyebilsin)
             document.getElementById('branchFilterContainer').classList.remove('hidden');
 
             if(currentData) render(currentData);
         }
 
-        async function fetchData() {
+        async function fetchData(isAuto = false) {
             const period = document.getElementById('periodSelector').value;
             if (!period) return;
+            
             const loader = document.getElementById('loading');
             loader.classList.remove('hidden');
-            clearTables();
+            
+            // Eğer manuel bir tetikleme ise (periyot değişimi gibi) tabloları temizle
+            if (!isAuto) clearTables();
 
             try {
                 const res = await fetch(`${APPSCRIPT_URL}?action=getDashboardData&sheetName=${encodeURIComponent(period)}`);
-                currentData = await res.json();
+                const data = await res.json();
                 
-                // Şube listesini populate et
-                populateBranchFilter(currentData);
+                currentData = data;
+                
+                // Şube listesini sadece manuel yüklemelerde veya liste boşsa populate et
+                const branchSel = document.getElementById('branchSelector');
+                if (!isAuto || branchSel.options.length <= 1) {
+                    populateBranchFilter(currentData);
+                }
                 
                 render(currentData);
+                
+                // Son güncelleme zamanını yaz
+                const now = new Date();
+                safeSetText('lastUpdateTime', now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0') + ':' + now.getSeconds().toString().padStart(2, '0'));
+                
             } catch (e) { 
                 console.error("Hata:", e); 
-                showErrorMessage("Veriler alınırken hata oluştu.");
-            } finally { loader.classList.add('hidden'); }
+                if (!isAuto) showErrorMessage("Veriler alınırken hata oluştu.");
+            } finally { 
+                loader.classList.add('hidden'); 
+            }
         }
 
         function populateBranchFilter(data) {
             const branchSelector = document.getElementById('branchSelector');
-            // Dashboard'daki tüm şube isimlerini al (charts.branch içinde tüm şubeler var)
+            const currentSelection = branchSelector.value;
             const branches = data.charts.branch.map(item => item.name).sort();
             
             let html = '<option value="Tümü">Tüm Şubeler</option>';
@@ -373,6 +394,11 @@
                 html += `<option value="${branch}">${branch}</option>`;
             });
             branchSelector.innerHTML = html;
+            
+            // Seçimi koru
+            if (branches.includes(currentSelection)) {
+                branchSelector.value = currentSelection;
+            }
         }
 
         function clearTables() {
@@ -401,7 +427,6 @@
             const fmt = (v) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 }).format(v);
             const num = (v) => new Intl.NumberFormat('tr-TR').format(v);
 
-            // Filtreleme: KPI'ları etkileyecek veriler
             let displayRevenue = data.kpis.totalRevenue;
             let displaySales = data.kpis.totalSales;
             let displayBasket = data.kpis.avgBasket;
@@ -417,7 +442,6 @@
             safeSetText('kpi-sales', num(displaySales));
             safeSetText('kpi-basket', fmt(displayBasket));
 
-            // Tab 1: Dashboard (Şube bazlı filtreleme burayı da etkiler)
             const branchBody = document.getElementById('branch-body');
             let branchList = data.charts.branch;
             if (selectedBranch !== "Tümü") {
@@ -436,7 +460,6 @@
             safeSetText('total-sales-val', num(displaySales));
             safeSetText('total-revenue-val', fmt(displayRevenue));
 
-            // Periyot Metinleri
             safeSetText('customer-period-text', `DÖNEM: ${data.period || '---'}`);
             safeSetText('unspecified-period-text', `DÖNEM: ${data.period || '---'}`);
             
@@ -445,13 +468,11 @@
                 list = list.filter(i => i.branch === selectedBranch);
             }
             
-            // Tab 2: Kayıtlı Müşteriler
             const specifiedList = list.filter(i => i.customerNo && i.customerNo.toString().toLowerCase() !== "belirtilmemiş" && i.customerNo.toString().trim() !== "");
             const groupedSpecified = groupData(specifiedList);
             document.getElementById('customer-body-specified').innerHTML = generateGroupedHtml(groupedSpecified, fmt);
             safeSetText('customer-total-val', fmt(specifiedList.reduce((a, b) => a + b.revenue, 0)));
 
-            // Tab 3: No Belirtilmeyenler
             const unspecifiedList = list.filter(i => !i.customerNo || i.customerNo.toString().toLowerCase() === "belirtilmemiş" || i.customerNo.toString().trim() === "");
             const groupedUnspecified = groupData(unspecifiedList);
             document.getElementById('unspecified-body').innerHTML = generateUnspecifiedHtml(groupedUnspecified, fmt);
@@ -488,7 +509,7 @@
             branches.forEach(branch => {
                 html += `<tr class="branch-group-row" style="background-color: #fff1f2 !important; color: #e11d48 !important;"><td colspan="4"><i class="fas fa-exclamation-circle mr-3"></i> ${branch}</td></tr>`;
                 grouped[branch].items.forEach((item, idx) => {
-                    html += `<tr><td class="text-center text-slate-400 text-[10px]">${idx + 1}</td><td class="font-bold text-slate-700 uppercase">${item.customerName || "İSİMSİZ"}</td><td class="text-rose-600 font-bold text-[11px] italic">No Belirtilmemiş</td><td class="text-right font-bold text-rose-700">${fmt(item.revenue)}</td></tr>`;
+                    html += `<tr><td class="text-center text-slate-400 text-[10px]">${idx + 1}</td><td class="font-bold text-slate-700 uppercase">${item.customerName || "İSİMSİZ"}</td><td class="text-rose-600 font-bold text-[11px] italic text-center">No Belirtilmemiş</td><td class="text-right font-bold text-rose-700">${fmt(item.revenue)}</td></tr>`;
                 });
                 html += `<tr class="subtotal-row" style="background-color: #fff1f2;"><td colspan="3" class="text-rose-900 font-semibold">Şube Belirtilmeyen Toplam:</td><td class="font-bold text-rose-700">${fmt(grouped[branch].total)}</td></tr>`;
             });
@@ -503,11 +524,9 @@
             const currencyFormat = '#,##0"₺"';
             let wsData = [];
             
-            // Filtreleme mantığı
             const branchText = selectedBranch === "Tümü" ? "TÜM ŞUBELER" : selectedBranch.toUpperCase();
             let fileName = `Hedef_AVM_Excel_${activeTab}_${selectedBranch}_${period}.xlsx`.replace(/ /g, '_');
 
-            // Başlık Satırı
             wsData.push([branchText + " - " + period.toUpperCase() + " RAPORU"]);
             wsData.push([]);
 
