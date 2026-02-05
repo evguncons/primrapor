@@ -98,7 +98,7 @@
                 </div>
                 <div>
                     <p class="text-white text-xs font-bold">Admin Panel</p>
-                    <p class="text-slate-400 text-[10px]">v6.7.3 Auto-Live</p>
+                    <p class="text-slate-400 text-[10px]">v6.7.4 Manual-Sync</p>
                 </div>
             </div>
         </div>
@@ -107,7 +107,7 @@
     <!-- Main Content -->
     <main class="flex-1 flex flex-col min-w-0 bg-slate-50">
         <!-- Header -->
-        <header class="h-20 bg-white border-b border-slate-200 px-4 lg:px-10 flex items-center justify-between flex-shrink-0 z-10">
+        <header class="h-20 bg-white border-b border-slate-200 px-4 lg:px-10 flex items-center justify-between flex-shrink-0 z-10 shadow-sm">
             <div class="flex items-center gap-4">
                 <button onclick="toggleSidebar()" class="lg:hidden w-10 h-10 flex items-center justify-center text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
                     <i class="fas fa-bars text-xl"></i>
@@ -124,6 +124,12 @@
             </div>
             
             <div class="flex items-center gap-2 lg:gap-4">
+                <!-- Manuel Yenileme Butonu -->
+                <button onclick="fetchData()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 w-10 h-10 lg:w-auto lg:px-5 lg:py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-indigo-100 active:scale-95 group" title="Verileri Yenile">
+                    <i class="fas fa-sync-alt group-active:rotate-180 transition-transform duration-500"></i>
+                    <span class="hidden lg:inline">YENİLE</span>
+                </button>
+
                 <!-- Şube Seçimi -->
                 <div id="branchFilterContainer" class="relative group block">
                     <select id="branchSelector" onchange="render(currentData)" class="appearance-none bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-bold rounded-xl pl-4 pr-10 py-3 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none cursor-pointer transition-all">
@@ -158,9 +164,9 @@
                         </div>
                         <span class="text-[11px] font-bold text-slate-400 uppercase mb-2 block tracking-widest">Brüt Ciro</span>
                         <div id="kpi-revenue" class="text-3xl font-extrabold text-slate-800 tracking-tighter">₺0</div>
-                        <div class="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-600">
-                            <i class="fas fa-sync fa-spin text-[8px]"></i>
-                            <span>Canlı Veri Akışı</span>
+                        <div class="mt-4 flex items-center gap-2 text-[10px] font-bold text-indigo-600">
+                            <i class="fas fa-info-circle text-[8px]"></i>
+                            <span>Verileri Manuel Yenileyin</span>
                         </div>
                     </div>
                     <div class="kpi-card relative overflow-hidden group">
@@ -181,8 +187,8 @@
                         <span class="text-[11px] font-bold text-slate-400 uppercase mb-2 block tracking-widest">Ort. Sepet</span>
                         <div id="kpi-basket" class="text-3xl font-extrabold text-slate-800 tracking-tighter">₺0</div>
                         <div class="mt-4 flex items-center gap-2 text-[10px] font-bold text-amber-600">
-                            <i class="fas fa-info-circle"></i>
-                            <span>Anlık Hesaplama</span>
+                            <i class="fas fa-calculator"></i>
+                            <span>Dönem Ortalaması</span>
                         </div>
                     </div>
                 </div>
@@ -287,7 +293,6 @@
         const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwX2K6gBaSalxAuME90FUJVr086B9D4PKitB4MvqaD5_KNc-rSHI3UWDZIjyftU6quG/exec";
         let currentData = null;
         let activeTab = 'dashboard';
-        let refreshInterval = null;
 
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -311,23 +316,13 @@
                 if (periods && periods.length > 0) {
                     sel.innerHTML = periods.map(p => `<option value="${p}">${p}</option>`).join('');
                     sel.value = periods[0];
-                    await fetchData(false); // İlk yüklemede loader ile getir
-                    
-                    // 5 saniyede bir güncelleme döngüsünü başlat
-                    startAutoRefresh();
+                    await fetchData(); // İlk yüklemeyi yap
                 }
             } catch (e) { 
                 console.error("Dönemler yüklenemedi:", e); 
                 showErrorMessage("Veri bağlantısı kurulamadı.");
             } finally { loader.classList.add('hidden'); }
         });
-
-        function startAutoRefresh() {
-            if (refreshInterval) clearInterval(refreshInterval);
-            refreshInterval = setInterval(() => {
-                fetchData(true); // Arka planda sessiz güncelleme yap
-            }, 5000);
-        }
 
         function setTab(tab) {
             activeTab = tab;
@@ -348,15 +343,15 @@
             if(currentData) render(currentData);
         }
 
-        async function fetchData(isAuto = false) {
+        async function fetchData() {
             const period = document.getElementById('periodSelector').value;
             if (!period) return;
             
             const loader = document.getElementById('loading');
             loader.classList.remove('hidden');
             
-            // Eğer manuel bir tetikleme ise (periyot değişimi gibi) tabloları temizle
-            if (!isAuto) clearTables();
+            // Veri çekilirken mevcut tabloların durumunu görsel olarak korumak için temizleme yapmıyoruz
+            // Sadece ilk manuel tetiklemede veya hata durumunda temizleme yapabiliriz.
 
             try {
                 const res = await fetch(`${APPSCRIPT_URL}?action=getDashboardData&sheetName=${encodeURIComponent(period)}`);
@@ -364,11 +359,8 @@
                 
                 currentData = data;
                 
-                // Şube listesini sadece manuel yüklemelerde veya liste boşsa populate et
-                const branchSel = document.getElementById('branchSelector');
-                if (!isAuto || branchSel.options.length <= 1) {
-                    populateBranchFilter(currentData);
-                }
+                // Şube listesini populate et
+                populateBranchFilter(currentData);
                 
                 render(currentData);
                 
@@ -378,7 +370,7 @@
                 
             } catch (e) { 
                 console.error("Hata:", e); 
-                if (!isAuto) showErrorMessage("Veriler alınırken hata oluştu.");
+                showErrorMessage("Veriler alınırken hata oluştu.");
             } finally { 
                 loader.classList.add('hidden'); 
             }
@@ -395,17 +387,9 @@
             });
             branchSelector.innerHTML = html;
             
-            // Seçimi koru
             if (branches.includes(currentSelection)) {
                 branchSelector.value = currentSelection;
             }
-        }
-
-        function clearTables() {
-            ['branch-body', 'customer-body-specified', 'unspecified-body'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.innerHTML = `<tr><td colspan="10" class="py-20 text-center italic text-slate-400 font-medium">Yükleniyor...</td></tr>`;
-            });
         }
 
         function showErrorMessage(msg) {
